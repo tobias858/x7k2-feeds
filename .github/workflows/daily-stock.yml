@@ -1,0 +1,33 @@
+name: Dagelijkse JoBe Stock Update
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch-stock:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Haal voorraad op
+        env:
+          JOBE_URL: ${{ secrets.JOBE_URL }}
+          JOBE_USER: ${{ secrets.JOBE_USER }}
+          JOBE_PASS: ${{ secrets.JOBE_PASS }}
+        run: python fetch_jobe_stock.py
+
+      - name: Commit en push CSV
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add jobe_stock.csv
+          git diff --staged --quiet || git commit -m "stock update $(date +'%Y-%m-%d')"
+          git push
