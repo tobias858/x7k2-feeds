@@ -1,17 +1,29 @@
-"""fetch_jobe_stock.py — GitHub Actions versie.
-
-Leest JOBE_URL / JOBE_USER / JOBE_PASS uit de omgeving (repo-secrets) en
-schrijft jobe_stock.csv in de working directory (= repo-root in Actions).
-
-Bewust GEEN hardcoded credentials en GEEN GitHub API-push:
-de workflow-stap committet het CSV-bestand zelf.
-"""
-
 import os
 import csv
 import sys
+import time
 import urllib.request
 import xml.etree.ElementTree as ET
+
+
+def fetch_xml(url, user, pw, retries=3, delay=10):
+    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    mgr.add_password(None, url, user, pw)
+    opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(mgr))
+    last_err = None
+    for poging in range(1, retries + 1):
+        try:
+            data = opener.open(url, timeout=60).read()
+            ET.fromstring(data)  # valideert meteen de XML
+            return data
+        except ET.ParseError as e:
+            last_err = f"ongeldige XML: {e}"
+        except Exception as e:
+            last_err = f"{e}"
+        print(f"Poging {poging}/{retries} mislukt \u2014 {last_err}")
+        if poging < retries:
+            time.sleep(delay)
+    sys.exit(f"XML ophalen mislukt na {retries} pogingen: {last_err}")
 
 
 def main():
@@ -22,12 +34,9 @@ def main():
     except KeyError as e:
         sys.exit(f"Secret ontbreekt: {e}. Zet JOBE_URL/JOBE_USER/JOBE_PASS in de repo-secrets.")
 
-    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    mgr.add_password(None, url, user, pw)
-    opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(mgr))
-    data = opener.open(url, timeout=60).read()
+    data = fetch_xml(url, user, pw)
 
-    root = ET.fromstring(data)  # valideert meteen de XML
+    root = ET.fromstring(data)
     rows = []
     for p in root.findall("product"):
         ean = (p.findtext("ean") or "").strip()
@@ -39,7 +48,7 @@ def main():
         rows.append((ean, v))
 
     if not rows:
-        sys.exit("Geen producten in XML — niets geschreven (feed leeg?).")
+        sys.exit("Geen producten in XML \u2014 niets geschreven (feed leeg?).")
 
     with open("jobe_stock.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
